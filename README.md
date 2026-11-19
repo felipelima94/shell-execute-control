@@ -32,14 +32,46 @@ Fedora ou `sudo apt remove shell-execute-control` no Ubuntu e Debian.
 
 ## Uso
 
-1. Clique em **Novo comando**, informe o nome da API e cole o script completo.
-   Com o diretório de trabalho vazio, a execução começa na sua pasta pessoal.
-2. Use **Play** para iniciar cada API e **Ver log** para acompanhar stdout e
-   stderr juntos. O painel mostra até os últimos 256 KiB e o arquivo guarda
-   toda a saída da execução.
-3. Use **Stop** para encerrar uma API. Ao fechar o painel, todos os comandos
-   ativos recebem um pedido de encerramento ao mesmo tempo. Após cinco segundos,
-   o painel força o encerramento dos grupos que ainda estiverem ativos.
+### Painel principal
+
+![Painel com uma API em execução e outra parada](docs/images/painel.png)
+
+Cada linha mostra o nome e o estado do comando. **Play** inicia a execução,
+**Stop** encerra e **Ver log** abre a saída. Use **Editar** para alterar o
+cadastro e **Excluir** para removê-lo e apagar seu log. Durante a execução,
+edição e exclusão ficam indisponíveis. O estado informa quando um comando
+terminou ou falhou e exibe o código de saída.
+
+### Cadastrar um comando
+
+![Formulário de comando com nome, diretório, sudo e script Bash](docs/images/cadastro.png)
+
+Clique em **Novo comando**, informe o nome da API e cole o script Bash
+completo. O diretório de trabalho é opcional. Quando estiver vazio, a execução
+começa na sua pasta pessoal. Marque **Executar com sudo** para executar o
+script inteiro como root e clique em **Salvar**.
+
+### Autenticar com sudo
+
+![Caixa de autenticação sudo para uma API](docs/images/sudo.png)
+
+Se o sudo solicitar autenticação ao clicar em **Play**, informe a senha da
+conta indicada e clique em **Autenticar**. **Cancelar** interrompe a tentativa.
+A política do sistema determina qual conta será solicitada.
+
+### Acompanhar os logs
+
+![Visualizador com saída da API e opção Acompanhar saída marcada](docs/images/log.png)
+
+Clique em **Ver log** para consultar stdout e stderr juntos. Com
+**Acompanhar saída** marcado, o visualizador acompanha as novas linhas. Ele
+mostra até os últimos 256 KiB, enquanto o arquivo guarda toda a saída da
+execução. O log permanece disponível após o encerramento e é substituído no
+próximo **Play**.
+
+Ao fechar o painel, todos os comandos ativos recebem um pedido de encerramento
+ao mesmo tempo. Após cinco segundos, o painel força o encerramento dos grupos
+que ainda estiverem ativos.
 
 Os comandos rodam em segundo plano para o painel. Mantenha a API no grupo
 de processos do script para que o painel consiga encerrá-la. Se a execução
