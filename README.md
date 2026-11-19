@@ -1,22 +1,34 @@
 # Painel de APIs
 
-Aplicativo desktop para executar e acompanhar comandos Bash no Linux. Requer Bash
-em `/bin/bash`, Python 3 e Tkinter para o Python do sistema.
+Aplicativo desktop para executar e acompanhar comandos Bash no Linux.
 
-Abra o painel a partir da pasta do projeto:
+## Instalação
+
+Baixe o pacote da sua distribuição na seção **Assets** da release estável
+mais recente. Os exemplos usam a versão `1.2.3`. Substitua pelo nome do
+arquivo que você baixou e rode o comando na pasta onde ele está.
+[Releases do Painel de APIs](https://github.com/felipelima94/shell-execute-control/releases/latest)
+
+**Fedora**
 
 ```sh
-/usr/bin/python3 app.py
+sudo dnf install ./shell-execute-control-1.2.3-1.noarch.rpm
 ```
 
-Para adicionar **Painel de APIs** ao menu de aplicativos do usuário:
+**Ubuntu e Debian**
 
 ```sh
-/usr/bin/python3 install_launcher.py
+sudo apt install ./shell-execute-control_1.2.3_all.deb
 ```
 
-O lançador usa o caminho atual do projeto. Execute o instalador novamente se
-mover a pasta.
+Abra **Painel de APIs** no menu de aplicativos ou execute
+`shell-execute-control` no terminal.
+
+Para atualizar, feche o painel, baixe o pacote da nova release e repita o
+comando de instalação. Os cadastros e logs ficam na sua conta de usuário.
+
+Para remover o aplicativo, use `sudo dnf remove shell-execute-control` no
+Fedora ou `sudo apt remove shell-execute-control` no Ubuntu e Debian.
 
 ## Uso
 
@@ -52,3 +64,20 @@ Uma regra que autoriza apenas o binário Java pode rejeitar essa chamada. Se o
 sudo recusar a execução, **Ver log** mostra o motivo e deixa disponível o log
 da última execução. **Stop** e o fechamento do painel usam a autorização da
 execução já iniciada.
+
+## Desenvolvimento
+
+Para rodar a partir do código-fonte, use Python 3.10 ou superior com Tkinter
+e Bash em `/bin/bash`. Na pasta do projeto, execute `/usr/bin/python3 app.py`.
+Para adicionar um atalho do checkout ao menu do seu usuário, execute
+`/usr/bin/python3 install_launcher.py`. Execute o instalador do atalho
+novamente se mover o checkout.
+
+## Publicar uma release
+
+No GitHub, publique uma release estável com uma tag no formato `vX.Y.Z`
+apontando para o commit com o workflow e a versão do aplicativo desejada.
+Acompanhe **Pacotes Linux** na aba **Actions**. Após a verificação no Fedora,
+Ubuntu e Debian, os dois instaladores aparecem em **Assets** da release.
+O envio exige que o repositório permita anexar arquivos após a publicação.
+[GitHub Actions](https://github.com/felipelima94/shell-execute-control/actions/workflows/linux-release.yml)

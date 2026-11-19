@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Painel de APIs
+Comment=Execute comandos Bash e acompanhe seus logs
+Exec=shell-execute-control
+Icon=utilities-terminal
+Terminal=false
+Categories=Development;
