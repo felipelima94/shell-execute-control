@@ -1,0 +1,11 @@
+#!/usr/bin/python3 -I
+import sys
+from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parent))
+from sudo_support import askpass
+
+try:
+    sys.exit(askpass())
+except (OSError, KeyError):
+    sys.exit(1)
