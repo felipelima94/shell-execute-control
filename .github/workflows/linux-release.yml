@@ -1,0 +1,125 @@
+name: Pacotes Linux
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-release-${{ github.event.release.id }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Gerar e testar os pacotes
+    if: ${{ !github.event.release.prerelease }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Gerar DEB e preparar teste de atualização
+        run: |
+          bash packaging/build.sh deb "$RELEASE_TAG" release
+          fixture_tag=v0.0.0
+          if [[ "$RELEASE_TAG" == "$fixture_tag" ]]; then
+            fixture_tag=v0.0.1
+          fi
+          bash packaging/build.sh deb "$fixture_tag" fixture
+          echo "FIXTURE_TAG=$fixture_tag" >> "$GITHUB_ENV"
+
+      - name: Verificar o DEB no Ubuntu 24.04 e Debian 13
+        run: |
+          first="/fixture/shell-execute-control_${FIXTURE_TAG#v}_all.deb"
+          upgrade="/release/shell-execute-control_${RELEASE_TAG#v}_all.deb"
+          if [[ "$RELEASE_TAG" == v0.0.0 ]]; then
+            first_old="$first"
+            first="$upgrade"
+            upgrade="$first_old"
+          fi
+
+          for image in ubuntu:24.04 debian:13; do
+            docker run --rm \
+              -v "$PWD:/source:ro" -v "$PWD/release:/release:ro" -v "$PWD/fixture:/fixture:ro" \
+              -e DEBIAN_FRONTEND=noninteractive "$image" bash -euc '
+                apt-get update
+                . /etc/os-release
+                extra=()
+                if [[ "$ID" == ubuntu ]]; then
+                  extra=(xvfb xauth)
+                  export RUN_GUI_TESTS=1
+                fi
+                apt-get install -y --no-install-recommends desktop-file-utils util-linux "${extra[@]}"
+                bash /source/packaging/verify-install.sh deb "$1" "$2"
+              ' _ "$first" "$upgrade"
+          done
+
+      - name: Gerar e verificar o RPM no Fedora 44
+        run: |
+          docker run --rm \
+            -v "$PWD:/source:ro" -v "$PWD/release:/release" \
+            -e RELEASE_TAG -e FIXTURE_TAG fedora:44 bash -euc '
+              dnf install -y rpm-build desktop-file-utils util-linux
+              bash /source/packaging/build.sh rpm "$RELEASE_TAG" /release
+              bash /source/packaging/build.sh rpm "$FIXTURE_TAG" /tmp/fixture
+              first="/tmp/fixture/shell-execute-control-${FIXTURE_TAG#v}-1.noarch.rpm"
+              upgrade="/release/shell-execute-control-${RELEASE_TAG#v}-1.noarch.rpm"
+              if [[ "$RELEASE_TAG" == v0.0.0 ]]; then
+                first_old="$first"
+                first="$upgrade"
+                upgrade="$first_old"
+              fi
+              bash /source/packaging/verify-install.sh rpm "$first" "$upgrade"
+            '
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: release/
+          if-no-files-found: error
+          overwrite: true
+
+  publish:
+    name: Anexar pacotes à release
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-packages
+          path: release
+
+      - name: Enviar os pacotes que ainda faltam
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          files=(
+            "release/shell-execute-control_${version}_all.deb"
+            "release/shell-execute-control-${version}-1.noarch.rpm"
+          )
+          for file in "${files[@]}"; do
+            test -s "$file"
+          done
+
+          assets=$(gh release view --json assets --jq '.assets[].name' -- "$RELEASE_TAG")
+          missing=()
+          for file in "${files[@]}"; do
+            if ! grep -Fxq -- "${file##*/}" <<< "$assets"; then
+              missing+=("$file")
+            fi
+          done
+          if (( ${#missing[@]} )); then
+            gh release upload -- "$RELEASE_TAG" "${missing[@]}"
+          fi
