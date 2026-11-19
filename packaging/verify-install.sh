@@ -75,7 +75,7 @@ test_data check
 desktop="/usr/share/applications/$app.desktop"
 desktop-file-validate "$desktop"
 grep -Fx "Exec=$app" "$desktop"
-[[ "$(command -v "$app")" == "/usr/bin/$app" ]]
+[[ "$(readlink -f "$(command -v "$app")")" == "/usr/bin/$app" ]]
 for executable in "/usr/bin/$app" "$app_dir/sudo_askpass"; do
     [[ "$(stat -c '%u:%g %a' "$executable")" == "0:0 755" ]]
 done
