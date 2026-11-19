@@ -42,6 +42,11 @@ cadastro e **Excluir** para removê-lo e apagar seu log. Durante a execução,
 edição e exclusão ficam indisponíveis. O estado informa quando um comando
 terminou ou falhou e exibe o código de saída.
 
+Arraste a alça **⠿** na coluna **Ordem** e solte o comando onde a linha de
+inserção aparecer. A lista rola ao aproximar o ponteiro das bordas superior
+e inferior. A nova ordem é salva automaticamente. Pressione **Esc** para
+cancelar o arraste.
+
 ### Cadastrar um comando
 
 ![Formulário de comando com nome, diretório, sudo e script Bash](docs/images/cadastro.png)

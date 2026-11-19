@@ -4,6 +4,7 @@ import time
 import tkinter as tk
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 from uuid import uuid4
 
 from app import Dashboard
@@ -43,6 +44,20 @@ class PanelTest(unittest.TestCase):
     def read_log(self, command):
         log = self.registry.log(command.id)
         return log.read_text() if log.exists() else ""
+
+    def order_handle(self, dashboard, row):
+        handle, = dashboard.list.grid_slaves(row=row, column=0)
+        return handle
+
+    def drag_to_row(self, dashboard, source, target, after):
+        dashboard.root.update_idletasks()
+        handle = self.order_handle(dashboard, source)
+        _, top, _, height = dashboard.list.grid_bbox(0, target, 3, target)
+        x = handle.winfo_rootx() + handle.winfo_width() // 2
+        y = dashboard.list.winfo_rooty() + top + height * (3 if after else 1) // 4
+        handle.event_generate("<ButtonPress-1>", x=handle.winfo_width() // 2, y=handle.winfo_height() // 2)
+        handle.event_generate("<B1-Motion>", rootx=x, rooty=y)
+        handle.event_generate("<ButtonRelease-1>", rootx=x, rooty=y)
 
     def test_script_and_last_log_survive_reopening(self):
         command = self.command(
@@ -130,6 +145,16 @@ class PanelTest(unittest.TestCase):
             buttons["Play"].invoke()
             self.assertTrue(buttons["Play"].instate(["disabled"]))
             self.assertTrue(buttons["Editar"].instate(["disabled"]))
+        root.deiconify()
+        root.update()
+        executions = dashboard.supervisor.active.copy()
+        self.drag_to_row(dashboard, source=2, target=1, after=False)
+        self.assertEqual(list(dashboard.rows), [second.id, first.id])
+        self.assertEqual(list(self.registry.load()), [second.id, first.id])
+        self.assertEqual(dashboard.supervisor.active, executions)
+        self.drag_to_row(dashboard, source=1, target=2, after=True)
+        self.assertEqual(list(dashboard.rows), [first.id, second.id])
+        self.assertEqual(list(self.registry.load()), [first.id, second.id])
         dashboard.rows[first.id][1]["Ver log"].invoke()
         viewer = dashboard.log_windows[first.id]
 
@@ -153,6 +178,79 @@ class PanelTest(unittest.TestCase):
         self.assertEqual(dashboard.supervisor.active, {})
         self.assertEqual(self.registry.load(), {first.id: first, second.id: second})
         self.assertEqual(self.read_log(first), "pronto\n")
+
+    def test_drag_scrolls_and_only_saves_a_valid_drop(self):
+        try:
+            root = tk.Tk()
+        except tk.TclError as error:
+            self.skipTest(str(error))
+
+        def close_root():
+            for callback in root.tk.splitlist(root.tk.call("after", "info")):
+                root.after_cancel(callback)
+            root.destroy()
+
+        self.addCleanup(close_root)
+        commands = [self.command("true", f"API {index}") for index in range(24)]
+        original_order = [command.id for command in commands]
+        self.registry.save({command.id: command for command in commands})
+        dashboard = Dashboard(root, self.registry, self.registry.load())
+        root.geometry("690x310")
+        root.update()
+        headings = [dashboard.list.grid_slaves(row=0, column=column)[0].cget("text")
+                    for column in range(3)]
+        self.assertEqual(headings, ["Ordem", "Comando", "Estado"])
+        handle = self.order_handle(dashboard, 1)
+        x = handle.winfo_rootx() + handle.winfo_width() // 2
+        y = handle.winfo_rooty() + handle.winfo_height() // 2
+        _, top, _, height = dashboard.list.grid_bbox(0, 2, 3, 2)
+        after_second = dashboard.list.winfo_rooty() + top + 3 * height // 4
+
+        with patch.object(self.registry, "save", wraps=self.registry.save) as save:
+            handle.event_generate("<ButtonPress-1>", rootx=x, rooty=y)
+            handle.event_generate("<ButtonRelease-1>", rootx=x, rooty=y)
+            self.drag_to_row(dashboard, source=1, target=1, after=True)
+            for escape in (False, True):
+                handle.event_generate("<ButtonPress-1>", rootx=x, rooty=y)
+                handle.event_generate("<B1-Motion>", rootx=x, rooty=after_second)
+                root.update_idletasks()
+                self.assertTrue(dashboard.drop_marker.winfo_ismapped())
+                self.assertEqual(list(dashboard.rows), original_order)
+                if escape:
+                    handle.focus_force()
+                    root.update()
+                    handle.event_generate("<Escape>")
+                    handle.event_generate("<ButtonRelease-1>", rootx=x, rooty=after_second)
+                else:
+                    outside = dashboard.canvas.winfo_rootx() - 1
+                    handle.event_generate("<ButtonRelease-1>", rootx=outside, rooty=after_second)
+                self.assertFalse(dashboard.drop_marker.winfo_ismapped())
+            save.assert_not_called()
+
+        with patch.object(self.registry, "save", side_effect=OSError("disco indisponível")), \
+                patch("app.messagebox.showerror") as showerror:
+            self.drag_to_row(dashboard, source=1, target=2, after=True)
+            showerror.assert_called_once_with("Falha ao salvar", "disco indisponível", parent=root)
+        self.assertEqual(list(dashboard.rows), original_order)
+        self.assertEqual(list(self.registry.load()), original_order)
+
+        bottom = dashboard.canvas.winfo_rooty() + dashboard.canvas.winfo_height() - 1
+        handle.event_generate("<ButtonPress-1>", rootx=x, rooty=y)
+        handle.event_generate("<B1-Motion>", rootx=x, rooty=bottom)
+
+        def scrolled_to_bottom():
+            root.update()
+            return dashboard.canvas.yview()[1] == 1.0
+
+        wait_until(scrolled_to_bottom)
+        self.assertEqual(list(self.registry.load()), original_order)
+        handle.event_generate("<ButtonRelease-1>", rootx=x, rooty=bottom)
+        expected_order = original_order[1:] + original_order[:1]
+        self.assertEqual(list(dashboard.rows), expected_order)
+        self.registry.close()
+        self.registry = Registry(self.config, self.state)
+        self.addCleanup(self.registry.close)
+        self.assertEqual(list(self.registry.load()), expected_order)
 
 
 if __name__ == "__main__":
