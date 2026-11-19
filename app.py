@@ -14,6 +14,8 @@ from runtime import APP_ID, Command, Registry, Supervisor, xdg_path
 
 POLL_MS = 150
 LOG_WINDOW_BYTES = 256 * 1024
+DRAG_SCROLL_EDGE = 28
+DRAG_SCROLL_MS = 75
 
 
 class LogWindow(tk.Toplevel):
@@ -188,6 +190,9 @@ class Dashboard:
         self.log_windows = {}
         self.password_dialogs = {}
         self.rows = {}
+        self.drag_row = None
+        self.drag_pointer = None
+        self.drag_scroll = None
         self.closing = False
         self.exit_requested = False
         root.title("Painel de APIs")
@@ -209,7 +214,8 @@ class Dashboard:
         scroll.pack(side="right", fill="y")
         self.canvas.pack(side="left", fill="both", expand=True)
         self.list = ttk.Frame(self.canvas)
-        self.list.columnconfigure(0, weight=1)
+        self.list.columnconfigure(1, weight=1)
+        self.drop_marker = ttk.Separator(self.list, orient="horizontal")
         window = self.canvas.create_window((0, 0), window=self.list, anchor="nw")
         self.canvas.bind("<Configure>", lambda event: self.canvas.itemconfigure(window, width=event.width))
         self.list.bind("<Configure>", lambda event: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
@@ -221,25 +227,36 @@ class Dashboard:
         self.tick()
 
     def render(self):
+        self.cancel_drag()
         for widget in self.list.winfo_children():
-            widget.destroy()
+            if widget != self.drop_marker:
+                widget.destroy()
         self.rows.clear()
-        ttk.Label(self.list, text="Comando").grid(row=0, column=0, sticky="w", pady=(0, 6))
-        ttk.Label(self.list, text="Estado").grid(row=0, column=1, sticky="w", pady=(0, 6))
+        ttk.Label(self.list, text="Ordem").grid(row=0, column=0, padx=(0, 8), pady=(0, 6))
+        ttk.Label(self.list, text="Comando").grid(row=0, column=1, sticky="w", pady=(0, 6))
+        ttk.Label(self.list, text="Estado").grid(row=0, column=2, sticky="w", pady=(0, 6))
         if not self.commands:
             ttk.Label(self.list, text="Cadastre um comando para começar.").grid(
-                row=1, column=0, columnspan=3, sticky="w", pady=12
+                row=1, column=0, columnspan=4, sticky="w", pady=12
             )
         for index, command in enumerate(self.commands.values(), start=1):
             command_id = command.id
+            handle = ttk.Label(self.list, text="⠿", padding=(8, 3), anchor="center")
+            handle.grid(row=index, column=0, padx=(0, 8))
+            if len(self.commands) > 1 and not self.closing:
+                handle.configure(cursor="fleur")
+                handle.bind("<ButtonPress-1>", lambda event, row=index: self.start_drag(event, row))
+                handle.bind("<B1-Motion>", self.drag_motion)
+                handle.bind("<ButtonRelease-1>", self.finish_drag)
+                handle.bind("<Escape>", self.cancel_drag)
             name = f"{command.name} · sudo" if command.sudo else command.name
             ttk.Label(self.list, text=name, wraplength=240).grid(
-                row=index, column=0, sticky="w", padx=(0, 12), pady=5
+                row=index, column=1, sticky="w", padx=(0, 12), pady=5
             )
             status = ttk.Label(self.list, width=24)
-            status.grid(row=index, column=1, sticky="w", padx=(0, 8))
+            status.grid(row=index, column=2, sticky="w", padx=(0, 8))
             actions = ttk.Frame(self.list)
-            actions.grid(row=index, column=2, sticky="e")
+            actions.grid(row=index, column=3, sticky="e")
             buttons = {}
             for label, action in (
                 ("Play", self.play), ("Stop", self.stop), ("Ver log", self.show_log),
@@ -300,6 +317,94 @@ class Dashboard:
         if window and window.winfo_exists():
             window.title(f"Log · {command.name}")
         return True
+
+    def start_drag(self, event, row):
+        if self.closing:
+            return
+        self.cancel_drag()
+        self.drag_row = row
+        event.widget.focus_set()
+
+    def pointer_y(self, root_x, root_y):
+        x = root_x - self.canvas.winfo_rootx()
+        y = root_y - self.canvas.winfo_rooty()
+        if 0 <= x < self.canvas.winfo_width() and 0 <= y < self.canvas.winfo_height():
+            return y
+        return None
+
+    def drop_position(self, root_x, root_y):
+        y = self.pointer_y(root_x, root_y)
+        if y is None:
+            return None
+        list_y = self.canvas.canvasy(y)
+        _, row = self.list.grid_location(0, list_y)
+        if row < 1:
+            return None
+        last_row = len(self.commands)
+        row = min(row, last_row)
+        _, top, _, height = self.list.grid_bbox(0, row, 3, row)
+        if list_y < top + height / 2:
+            return row - 1, top
+        return row, min(top + height, self.list.winfo_height() - 2)
+
+    def show_drop_marker(self):
+        position = self.drop_position(*self.drag_pointer)
+        if position is None or position[0] in (self.drag_row - 1, self.drag_row):
+            self.drop_marker.place_forget()
+            return
+        _, y = position
+        self.drop_marker.place(x=0, y=y, relwidth=1, height=2)
+        self.drop_marker.lift()
+
+    def drag_motion(self, event):
+        if self.drag_row is None:
+            return
+        self.drag_pointer = event.x_root, event.y_root
+        self.show_drop_marker()
+        if self.drag_scroll is None:
+            self.drag_scroll = self.root.after(DRAG_SCROLL_MS, self.scroll_drag)
+
+    def scroll_drag(self):
+        self.drag_scroll = None
+        y = self.pointer_y(*self.drag_pointer)
+        if y is None:
+            return
+        if y < DRAG_SCROLL_EDGE:
+            direction = -1
+        elif y >= self.canvas.winfo_height() - DRAG_SCROLL_EDGE:
+            direction = 1
+        else:
+            return
+        before = self.canvas.yview()
+        self.canvas.yview_scroll(direction, "units")
+        self.show_drop_marker()
+        if self.canvas.yview() != before:
+            self.drag_scroll = self.root.after(DRAG_SCROLL_MS, self.scroll_drag)
+
+    def cancel_drag(self, event=None):
+        if self.drag_scroll is not None:
+            self.root.after_cancel(self.drag_scroll)
+            self.drag_scroll = None
+        self.drag_row = None
+        self.drag_pointer = None
+        self.drop_marker.place_forget()
+
+    def finish_drag(self, event):
+        if self.drag_pointer is None:
+            self.cancel_drag()
+            return
+        source = self.drag_row - 1
+        position = self.drop_position(event.x_root, event.y_root)
+        self.cancel_drag()
+        if position is None or position[0] in (source, source + 1):
+            return
+        destination, _ = position
+        if destination > source:
+            destination -= 1
+        commands = list(self.commands.items())
+        command = commands.pop(source)
+        commands.insert(destination, command)
+        self.persist(dict(commands), self.root)
 
     def delete(self, command_id):
         command = self.commands[command_id]
@@ -373,6 +478,7 @@ class Dashboard:
         if self.closing:
             return
         self.closing = True
+        self.cancel_drag()
         self.supervisor.stop_all()
         for command_id in list(self.password_dialogs):
             self.close_password_dialog(command_id)
